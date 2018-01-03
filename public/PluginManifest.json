@@ -3,8 +3,8 @@
     "Id": "PerUserReport",
     "Name": "Report of per user activity",
     "Author" :  "Voter-Science",
-    "Website" :  "https://github.com/Voter-Science/TRC-API-Samples",
+    "Website" :  "https://github.com/Voter-Science/PerUserReport",
     "Description": "Report for each user's total time spent, total contacts, total doors, total completed surveys, etc.",        
-    "Version": "1.0.0", // User SemVer
+    "Version": "1.0.1", // User SemVer
     "Tags": [ "reports"  ]
 }
