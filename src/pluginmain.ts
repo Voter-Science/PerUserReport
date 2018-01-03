@@ -1,116 +1,221 @@
-// Sample 'Hello World' Plugin template.
-// Demonstrates:
-// - typescript
-// - using trc npm modules and browserify
-// - uses promises. 
-// - basic scaffolding for error reporting. 
-// This calls TRC APIs and binds to specific HTML elements from the page.  
+// Show a per-user report. 
+// - # of people
+// - # of households
+// - # of completed surveys 
+// - # of hours. 
 
 import * as XC from 'trc-httpshim/xclient'
 import * as common from 'trc-httpshim/common'
 
 import * as core from 'trc-core/core'
 
-import * as trcSheet from 'trc-sheet/sheet' 
+import * as trcSheet from 'trc-sheet/sheet'
+import * as trcSheetContents from 'trc-sheet/sheetContents'
 import * as trcSheetEx from 'trc-sheet/sheetEx'
 
-import * as gps from 'trc-web/gps'
 import * as plugin from 'trc-web/plugin'
 import * as trchtml from 'trc-web/html'
+import { HashCount } from './hashcount'
 
 
 declare var $: any; // external definition for JQuery 
 
 // Provide easy error handle for reporting errors from promises.  Usage:
 //   p.catch(showError);
-declare var showError : (error:any) => void; // error handler defined in index.html
+declare var showError: (error: any) => void; // error handler defined in index.html
 
 export class MyPlugin {
     private _sheet: trcSheet.SheetClient;
-    private _pluginClient : plugin.PluginClient;
-    private _gps : common.IGeoPointProvider;
+    private _pluginClient: plugin.PluginClient;
+
+    private _sheetIndex: trcSheetContents.SheetContentsIndex;
+    private _userInfoMap : any = { };
 
     public static BrowserEntryAsync(
         auth: plugin.IStart,
-        opts : plugin.IPluginOptions
-    ) : Promise<MyPlugin> {
-        
-        // You can set gpsTracker null if you don't need GPS. 
-        var gpsTracker = new gps.GpsTracker(); // Only works in browser
-        var pluginClient = new plugin.PluginClient(auth,opts, gpsTracker);
+        opts: plugin.IPluginOptions
+    ): Promise<MyPlugin> {
+
+        var pluginClient = new plugin.PluginClient(auth, opts);
 
         // Do any IO here...
-        
-        var throwError =false; // $$$ remove this
-        
+
+        var throwError = false; // $$$ remove this
+
         var plugin2 = new MyPlugin(pluginClient);
-        plugin2._gps = gpsTracker;
-        return plugin2.InitAsync().then( () => {
+        return plugin2.InitAsync().then(() => {
             if (throwError) {
                 throw "some error";
             }
-            
-            gpsTracker.start((loc) => plugin2.OnGpsChanged(loc)); // ignore callback
-            return plugin2;                        
+
+            return plugin2;
         });
     }
 
-    private OnGpsChanged(loc : gps.IGeoPoint) : void {
-        // Notification that the GPS position has change. 
-        // Use this if you have a map view showing the user's "current location"
-        var msg = "(Lat: " + loc.Lat + ", Long:" + loc.Long + ")";
-        $("#locInfo").text(msg);
-    }
-
     // Expose constructor directly for tests. They can pass in mock versions. 
-    public constructor(p : plugin.PluginClient) {
+    public constructor(p: plugin.PluginClient) {
         this._sheet = new trcSheet.SheetClient(p.HttpClient, p.SheetId);
     }
-    
+
 
     // Make initial network calls to setup the plugin. 
     // Need this as a separate call from the ctor since ctors aren't async. 
-    private InitAsync() : Promise<void> {
-        return this._sheet.getInfoAsync().then( info  => {
-            this.updateInfo(info);
-        });     
+    private InitAsync(): Promise<void> {
+        return this._sheet.getInfoAsync().then(info => {
+            return this._sheet.getSheetContentsAsync().then(contents => {
+                this._sheetIndex = new trcSheetContents.SheetContentsIndex(contents);
+
+                return this._sheet.getDeltaRangeAsync().then(iter => {
+                    return iter.ForEach(item => {
+                        var user = item.User;
+
+                        var userInfo: UserInfo  = this.getUserInfo(user);
+
+                        userInfo.RecordTime(item.Timestamp);
+
+                        return trcSheetContents.SheetContents.ForEach(item.Value, (recId, columnName, newValue) => {
+                            userInfo.Apply(recId, columnName);
+                        });
+                    });
+                });
+            });
+        }).then( ()=> {
+            this.Render();
+
+        });
     }
 
-    // Display sheet info on HTML page
-    public updateInfo(info: trcSheet.ISheetInfoResult): void {
-        $("#SheetName").text(info.Name);
-        $("#ParentSheetName").text(info.ParentName);
-        $("#SheetVer").text(info.LatestVersion);
-        $("#RowCount").text(info.CountRecords);
+    private Render() : void {
+        var root = $("#contents");
 
-        $("#LastRefreshed").text(new Date().toLocaleString());
-    }
+        var data : trcSheetContents.ISheetContents = { };
 
-    // Example of a helper function.
-    public doubleit(val: number): number {
-        return val * 2;
-    }
+        var cUserName : string[] = [];
+        var cVoters : string[] = [];
+        var cDoors : string[] = [];
+        var cCompleted : string[] = [];        
+        var cTime : string[] = [];        
 
-    // Demonstrate receiving UI handlers 
-    public onClickRefresh(): void {
-        this.InitAsync().        
-            catch(showError);
-    }
-
-
-    // downloading all contents and rendering them to HTML can take some time. 
-    public onGetSheetContents(): void {
-        trchtml.Loading("contents");
-        //$("#contents").empty();
-        //$("#contents").text("Loading...");
-
-        trcSheetEx.SheetEx.InitAsync(this._sheet, this._gps).then((sheetEx)=>
+        for(var i in this._userInfoMap)
         {
-            return this._sheet.getSheetContentsAsync().then((contents) => {
-                var render = new trchtml.SheetControl("contents", sheetEx);
-                // could set other options on render() here
-                render.render();
-            }).catch(showError);
-        });        
+            var userInfo = <UserInfo> this._userInfoMap[i];
+            cUserName.push(userInfo.getUserName());
+            cVoters.push(userInfo.getCountVoters().toString());
+            cDoors.push(userInfo.getCountHouseholds().toString());
+            cCompleted.push(userInfo.getCountSurveys().toString());
+
+            var timeMinutes = Math.trunc(userInfo.getTotalTimeSeconds() / 60).toString();
+            cTime.push(timeMinutes);
+        }
+
+        data["User"] = cUserName;
+        data["Completed"] = cCompleted;        
+        data["People"] = cVoters;
+        data["Households"] = cDoors;
+        data["Time (min)"] = cTime;
+        
+        var r = new trchtml.RenderSheet("contents", data);
+        r.render();
+    }
+
+    private getUserInfo(user : string) : UserInfo 
+    {
+        var x = <UserInfo> this._userInfoMap[user];
+        if (!x) 
+        {
+            x = new UserInfo(user, this);
+            this._userInfoMap[user] = x;
+        }
+        
+        return x;
+    }
+
+    public GetAddress(recId: string): string {
+        var idx = this._sheetIndex.lookupRecId(recId);
+
+        var addrColumn = this._sheetIndex.getContents()["Address"];
+        var cityColumn = this._sheetIndex.getContents()["City"];
+        return addrColumn[idx] + ", " + cityColumn[idx];
+    }   
+}
+
+class UserInfo {
+    private _user : string;
+    private _parent: MyPlugin;
+
+    private _recIds: HashCount = new HashCount();
+    private _households: HashCount = new HashCount();
+    private _completedSurveys: HashCount = new HashCount();
+
+    public constructor(user : string, parent : MyPlugin) 
+    {
+        this._user = user;
+        this._parent = parent;
+    }
+
+    private _totalTimeSeconds : number = 0;
+    private _lastTime? : Date; 
+    
+    // Record timestamp. Assumes these are increasing order. 
+    public RecordTime(timestamp : string) : void {
+        if (!timestamp)
+        {
+            return;
+        }
+        var thresholdMs : number = 15 * 60 * 1000;
+
+        var d = new Date(timestamp);
+        if (this._lastTime)
+        {
+            var diffMS : number = d.getTime() - this._lastTime.getTime();
+
+            if (diffMS > thresholdMs) {
+                // New time is too far apart from previous time, assume there was a break. 
+                this._lastTime = null;
+            } else {
+                this._totalTimeSeconds += (diffMS/ 1000);                
+            }
+        }
+        this._lastTime = d;
+    }
+
+    public Apply(recId: string, columnName: string): void {
+
+        this._recIds.Add(recId);
+
+        var address = this._parent.GetAddress(recId);
+        this._households.Add(address);
+
+        var x = columnName.toLowerCase();
+        var isQuestion = (
+            x != "party" && 
+            x != "cellphone" && 
+            x != "email" &&
+            x != "resultofcontact" && 
+            x != "comments");
+
+        if (isQuestion) {
+            this._completedSurveys.Add(recId);
+        }
+    }
+
+    public getUserName() : string {
+        return this._user;
+    }
+
+    public getTotalTimeSeconds() : number {
+        return this._totalTimeSeconds;
+    }
+
+    public getCountVoters(): number {
+        return this._recIds.getCount();
+    }
+
+    public getCountHouseholds(): number {
+        return this._households.getCount();
+    }
+
+    public getCountSurveys(): number {
+        return this._completedSurveys.getCount();
     }
 }
