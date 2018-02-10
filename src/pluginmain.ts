@@ -1,8 +1,8 @@
-// Show a per-user report. 
+// Show a per-user report.
 // - # of people
 // - # of households
-// - # of completed surveys 
-// - # of hours. 
+// - # of completed surveys
+// - # of hours.
 
 import * as XC from 'trc-httpshim/xclient'
 import * as common from 'trc-httpshim/common'
@@ -18,11 +18,12 @@ import * as trchtml from 'trc-web/html'
 import { HashCount } from './hashcount'
 
 
-declare var $: any; // external definition for JQuery 
+declare var $: any; // external definition for JQuery
 
 // Provide easy error handle for reporting errors from promises.  Usage:
 //   p.catch(showError);
 declare var showError: (error: any) => void; // error handler defined in index.html
+declare var google: any;
 
 export class MyPlugin {
     private _sheet: trcSheet.SheetClient;
@@ -52,14 +53,13 @@ export class MyPlugin {
         });
     }
 
-    // Expose constructor directly for tests. They can pass in mock versions. 
+    // Expose constructor directly for tests. They can pass in mock versions.
     public constructor(p: plugin.PluginClient) {
         this._sheet = new trcSheet.SheetClient(p.HttpClient, p.SheetId);
     }
 
-
-    // Make initial network calls to setup the plugin. 
-    // Need this as a separate call from the ctor since ctors aren't async. 
+    // Make initial network calls to setup the plugin.
+    // Need this as a separate call from the ctor since ctors aren't async.
     private InitAsync(): Promise<void> {
         return this._sheet.getInfoAsync().then(info => {
             return this._sheet.getDeltaRangeAsync().then(iter => {
@@ -83,18 +83,22 @@ export class MyPlugin {
                     if (!clientTimestamp) {
                         userInfo.RecordTime(item.Timestamp);
                     }
+
+                    userInfo.GeoLatLng(item.GeoLat, item.GeoLong);
+
                 });
+
             }).then(() => {
                 return this._sheet.getSheetContentsAsync().then(contents => {
                     this._sheetIndex = new trcSheetContents.SheetContentsIndex(contents);
                 }).catch( ()=> {
-                    // No addresses available. Show stats based on deltas. 
+                    // No addresses available. Show stats based on deltas.
                     this._sheetIndex = null;
                 });
             });
         }).then(() => {
             this.Render();
-
+            this.initMap();
         });
     }
 
@@ -108,6 +112,7 @@ export class MyPlugin {
         var cDoors: string[] = [];
         var cCompleted: string[] = [];
         var cTime: string[] = [];
+        var cLatLng = new Array();
 
         for (var i in this._userInfoMap) {
             var userInfo = <UserInfo>this._userInfoMap[i];
@@ -124,6 +129,7 @@ export class MyPlugin {
 
             var timeMinutes = Math.trunc(userInfo.getTotalTimeSeconds() / 60).toString();
             cTime.push(timeMinutes);
+            cLatLng.push(userInfo.getLatLng());
         }
 
         data["User"] = cUserName;
@@ -135,6 +141,44 @@ export class MyPlugin {
         var r = new trchtml.RenderSheet("contents", data);
         r.render();
     }
+
+    private initMap(): void {
+
+        var map = new google.maps.Map(document.getElementById('map'), {
+          zoom: 8
+        });
+
+        for (var i in this._userInfoMap) {
+            var randomColor = '#'+ ('000000' + Math.floor(Math.random()*16777215).toString(16)).slice(-6);
+            var userInfo = <UserInfo>this._userInfoMap[i];
+            var userName = userInfo.getUserName();
+
+            var latLng = userInfo.getLatLng();
+
+            var bounds  = new google.maps.LatLngBounds();
+
+            for (let j: number = 0; j < latLng.length; j++)
+            {
+                var position = new google.maps.LatLng(latLng[j].lat, latLng[j].lng);
+
+                bounds.extend(position);
+
+            }
+
+            var flightPath = new google.maps.Polyline({
+                path: latLng,
+                geodesic: true,
+                strokeColor: randomColor,
+                strokeOpacity: 1.0,
+                strokeWeight: 3
+            });
+            flightPath.setMap(map);
+        }
+
+            var center = bounds.getCenter();
+            map.setCenter(center);
+
+      }
 
     private getUserInfo(user: string): UserInfo {
         var x = <UserInfo>this._userInfoMap[user];
@@ -175,7 +219,22 @@ class UserInfo {
     private _totalTimeSeconds: number = 0;
     private _lastTime?: Date;
 
-    // Record timestamp. Assumes these are increasing order. 
+    private _latLng = new Array();
+
+    //private _cord: any = {};
+
+    public GeoLatLng(geoLat: string, geoLng: string): void {
+
+        if ((geoLat != null) && (geoLng != null)) {
+
+            var cord = { lat: parseFloat(geoLat), lng: parseFloat(geoLng) }
+
+            this._latLng.push(cord);
+
+        }
+    }
+
+    // Record timestamp. Assumes these are increasing order.
     public RecordTime(timestamp: string): void {
         if (!timestamp) {
             return;
@@ -187,13 +246,13 @@ class UserInfo {
             var diffMS: number = d.getTime() - this._lastTime.getTime();
 
             if (diffMS < 0) {
-                // Timestamps are received out of order. 
-                // $$$ should caller have sorted them? 
+                // Timestamps are received out of order.
+                // $$$ should caller have sorted them?
                 return;
             }
 
             if (diffMS > thresholdMs) {
-                // New time is too far apart from previous time, assume there was a break. 
+                // New time is too far apart from previous time, assume there was a break.
                 this._lastTime = null;
             } else {
                 this._totalTimeSeconds += (diffMS / 1000);
@@ -242,5 +301,9 @@ class UserInfo {
 
     public getCountSurveys(): number {
         return this._completedSurveys.getCount();
+    }
+
+    public getLatLng(): any {
+        return this._latLng;
     }
 }
