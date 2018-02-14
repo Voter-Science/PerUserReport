@@ -84,7 +84,7 @@ export class MyPlugin {
                         userInfo.RecordTime(item.Timestamp);
                     }
 
-                    userInfo.GeoLatLng(item.GeoLat, item.GeoLong);
+                    userInfo.GeoLatLng(item.GeoLat, item.GeoLong, item.Timestamp);
 
                 });
 
@@ -112,7 +112,6 @@ export class MyPlugin {
         var cDoors: string[] = [];
         var cCompleted: string[] = [];
         var cTime: string[] = [];
-        var cLatLng = new Array();
 
         for (var i in this._userInfoMap) {
             var userInfo = <UserInfo>this._userInfoMap[i];
@@ -129,7 +128,6 @@ export class MyPlugin {
 
             var timeMinutes = Math.trunc(userInfo.getTotalTimeSeconds() / 60).toString();
             cTime.push(timeMinutes);
-            cLatLng.push(userInfo.getLatLng());
         }
 
         data["User"] = cUserName;
@@ -144,39 +142,61 @@ export class MyPlugin {
 
     private initMap(): void {
 
-        var map = new google.maps.Map(document.getElementById('map'), {
-          zoom: 8
-        });
+        var map = new google.maps.Map(document.getElementById('map'));
+        var infowindow = new google.maps.InfoWindow();
+        var bounds  = new google.maps.LatLngBounds();
+        var latLng : any = {};
 
         for (var i in this._userInfoMap) {
-            var randomColor = '#'+ ('000000' + Math.floor(Math.random()*16777215).toString(16)).slice(-6);
+
             var userInfo = <UserInfo>this._userInfoMap[i];
-            var userName = userInfo.getUserName();
 
-            var latLng = userInfo.getLatLng();
+             latLng = userInfo.getLatLng();
 
-            var bounds  = new google.maps.LatLngBounds();
-
-            for (let j: number = 0; j < latLng.length; j++)
-            {
-                var position = new google.maps.LatLng(latLng[j].lat, latLng[j].lng);
-
-                bounds.extend(position);
-
+            if (latLng.length < 1) {
+                continue;
             }
 
-            var flightPath = new google.maps.Polyline({
-                path: latLng,
-                geodesic: true,
-                strokeColor: randomColor,
-                strokeOpacity: 1.0,
-                strokeWeight: 3
-            });
-            flightPath.setMap(map);
-        }
+            var userName = userInfo.getUserName().split('@');
+            var name = userName[0];
+            var startTime = userInfo.getStartTime()
+            var randomColor = '#'+ ('000000' + Math.floor(Math.random()*16777215).toString(16)).slice(-6);
 
-            var center = bounds.getCenter();
-            map.setCenter(center);
+            for (var j in latLng) {
+
+                var pst = new google.maps.LatLng(latLng[j][0].lat, latLng[j][0].lng);
+
+                var marker = new google.maps.Marker({
+                    position: pst,
+                    map: map
+                });
+
+                var infoContent = '<div class="info_content">' +
+                        '<h3>' + name + '</h3>' +
+                        '<p>' + startTime[j] + '</p></div>';
+
+                google.maps.event.addListener(marker, 'click', (function(marker, j, infoContent) {
+                    return function() {
+                        infowindow.setContent(infoContent);
+                        infowindow.open(map, marker);
+                    }
+                })(marker, j, infoContent));
+
+
+                bounds.extend(pst);
+
+                var flightPath = new google.maps.Polyline({
+                    path: latLng[j],
+                    geodesic: true,
+                    strokeColor: randomColor,
+                    strokeOpacity: 1.0,
+                    strokeWeight: 3
+                });
+                flightPath.setMap(map);
+            }
+        }
+        map.fitBounds(bounds);       // auto-zoom
+        map.panToBounds(bounds);     // auto-center
 
       }
 
@@ -218,19 +238,49 @@ class UserInfo {
 
     private _totalTimeSeconds: number = 0;
     private _lastTime?: Date;
+    private _startTime?: Date;
 
     private _latLng = new Array();
+    private _geoLocation = new Array();
+    private _geoStartTime = new Array();
+    private _geoTime?: Date;
+    private _geoKey: number = 0;
 
-    //private _cord: any = {};
 
-    public GeoLatLng(geoLat: string, geoLng: string): void {
+    public GeoLatLng(geoLat: string, geoLng: string, timestamp: string): void {
 
         if ((geoLat != null) && (geoLng != null)) {
 
-            var cord = { lat: parseFloat(geoLat), lng: parseFloat(geoLng) }
+            var thresholdMs: number = 10 * 60 * 1000;
 
-            this._latLng.push(cord);
+            var d = new Date(timestamp);
+            if (!this._startTime) {
+                this._startTime = d;
+            }
 
+            if (this._geoTime) {
+                var diffMS: number = d.getTime() - this._geoTime.getTime();
+
+                if (diffMS < 0) {
+                    // Timestamps are received out of order.
+                    return;
+                }
+
+                if (diffMS > thresholdMs) {
+                    // New time is too far apart from previous time, assume there was a break.
+                    this._geoTime = null;
+                    this._latLng = new Array();
+                    ++this._geoKey;
+                    this._startTime = d;
+                }
+            }
+            this._geoTime = d;
+
+            var dic = { lat: parseFloat(geoLat), lng: parseFloat(geoLng) }
+
+            this._latLng.push(dic);
+            this._geoLocation[this._geoKey] = this._latLng;
+            this._geoStartTime[this._geoKey] = this._startTime;
         }
     }
 
@@ -304,6 +354,10 @@ class UserInfo {
     }
 
     public getLatLng(): any {
-        return this._latLng;
+        return this._geoLocation;
+    }
+
+    public getStartTime(): any {
+        return this._geoStartTime;
     }
 }
