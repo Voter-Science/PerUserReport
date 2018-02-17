@@ -2,12 +2,18 @@
 
 <link rel="stylesheet" type="text/css" href="trcgrid.css">
 
+<link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u"
+    crossorigin="anonymous">
+
 <script src="https://code.jquery.com/jquery-1.11.3.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa"
+    crossorigin="anonymous"></script>
 <script src="bundle.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAGU_ME0ojsMVk-VktaIx_BP381AOjmlDM"></script>
 <script>
     // plugin startup shim
     var _pluginModule = require('pluginmain');
-    
+
     // Global reference to the current sheet;
     var _plugin = null;
 
@@ -22,18 +28,18 @@
     }
 
     // This is a well-known entry point. It's called by the hosting infrastructure.
-    function PluginMain(sheetRef, opts) {                
+    function PluginMain(sheetRef, opts) {
 
         _pluginModule.MyPlugin.BrowserEntryAsync(sheetRef, opts).then(
             function(plugin) {
-                // Success 
-                _plugin = plugin;            
-                $("#_loadingmsg").hide();  
+                // Success
+                _plugin = plugin;
+                $("#_loadingmsg").hide();
                 $("#_mainbody").show(); // activate main controls
             }
         ).catch(function(error) {
-            // Error case. Display message and Keep main body hiden. 
-            $("#_loadingmsg").hide();  
+            // Error case. Display message and Keep main body hiden.
+            $("#_loadingmsg").hide();
             showError(error);
         });
     }
@@ -56,18 +62,19 @@
     </span>
     <div class="container">
     <div id="_mainbody"  style="display:none">
-        
+
         <h1>Per-User report</h1>
 
         <ul>
             <li>Completed - number of unique surveys this user completed. This does not include answers for Comments/ResultOfContact. </li>
-            <li>Households - number of unique households ("doors") this user contacted.</li>            
+            <li>Households - number of unique households ("doors") this user contacted.</li>
             <li>People - number of people contacted by the user. There may be multiple people in a household.</li>
             <li>Time - minutes this user spent in the field. </li>
         </ul>
 
         <div id="contents">
                     </div>
+        <div class="col-sm-12" id="map" style="width:100%; height:500px; "></div>
     </div>
 </div>
 </body>

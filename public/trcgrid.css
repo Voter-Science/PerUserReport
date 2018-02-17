@@ -1,7 +1,7 @@
 
 /* Styles used with TRC GridControl */
 
-/* Done! Server has acknowledged change. */ 
+/* Done! Server has acknowledged change. */
 .OkUpload {
     background-color: #adffb6;
 }
@@ -16,3 +16,15 @@
     background-color: #c1f8ff;
 }
 
+#contents table {
+ border-collapse: collapse;
+ width: 100%;
+}
+#contents table th, td {
+ padding: 0.25rem;
+ text-align: left;
+ border: 1px solid #ccc;
+}
+#contents table tbody tr:nth-child(odd) {
+ background: #eee;
+}
