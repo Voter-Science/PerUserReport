@@ -61,44 +61,50 @@ export class MyPlugin {
     // Make initial network calls to setup the plugin.
     // Need this as a separate call from the ctor since ctors aren't async.
     private InitAsync(): Promise<void> {
-        return this._sheet.getInfoAsync().then(info => {
-            return this._sheet.getDeltaRangeAsync().then(iter => {
-                return iter.ForEach(item => {
-                    var user = item.User;
 
-                    var userInfo: UserInfo = this.getUserInfo(user);
+        // Get sheet contents first, since we need that for addresses to apply deltas. 
+        return this._sheet.getSheetContentsAsync().then(contents => {
+            this._sheetIndex = new trcSheetContents.SheetContentsIndex(contents);
+        }).catch(() => {
+            // No addresses available. Show stats based on deltas.
+            this._sheetIndex = null;
+        }).then(() => {
+            return this._sheet.getInfoAsync().then(info => {
+                return this._sheet.getDeltaRangeAsync().then(iter => {
+                    return iter.ForEach(item => {
+                        var user = item.User;
 
-                    var clientTimestamp = false;
+                        var userInfo: UserInfo = this.getUserInfo(user);
 
-                    trcSheetContents.SheetContents.ForEach(item.Value, (recId, columnName, newValue) => {
-                        // XLastModified, XLat, XLong
-                        if (columnName == "XLastModified") {
-                            clientTimestamp = true;
-                            userInfo.RecordTime(newValue);
-                        } else {
-                            userInfo.Apply(recId, columnName);
+                        var clientTimestamp = false;
+
+                        trcSheetContents.SheetContents.ForEach(item.Value, (recId, columnName, newValue) => {
+                            // XLastModified, XLat, XLong
+                            if (columnName == "XLat") {
+                                item.GeoLat = newValue;
+                            } else if (columnName == "XLong") {
+                                item.GeoLong = newValue;
+                            } else if (columnName == "XLastModified") {
+                                clientTimestamp = true;
+                                userInfo.RecordTime(newValue);
+                            } else {
+                                userInfo.Apply(recId, columnName);
+                            }
+                        });
+
+                        if (!clientTimestamp) {
+                            userInfo.RecordTime(item.Timestamp);
                         }
+
+                        userInfo.GeoLatLng(item.GeoLat, item.GeoLong, item.Timestamp);
+
                     });
 
-                    if (!clientTimestamp) {
-                        userInfo.RecordTime(item.Timestamp);
-                    }
-
-                    userInfo.GeoLatLng(item.GeoLat, item.GeoLong, item.Timestamp);
-
                 });
-
             }).then(() => {
-                return this._sheet.getSheetContentsAsync().then(contents => {
-                    this._sheetIndex = new trcSheetContents.SheetContentsIndex(contents);
-                }).catch( ()=> {
-                    // No addresses available. Show stats based on deltas.
-                    this._sheetIndex = null;
-                });
+                this.Render();
+                this.initMap();
             });
-        }).then(() => {
-            this.Render();
-            this.initMap();
         });
     }
 
@@ -118,8 +124,7 @@ export class MyPlugin {
             cUserName.push(userInfo.getUserName());
             cVoters.push(userInfo.getCountVoters().toString());
 
-            if (this._sheetIndex == null)
-            {
+            if (this._sheetIndex == null) {
                 cDoors.push("n/a");
             } else {
                 cDoors.push(userInfo.getCountHouseholds().toString());
@@ -144,14 +149,14 @@ export class MyPlugin {
 
         var map = new google.maps.Map(document.getElementById('map'));
         var infowindow = new google.maps.InfoWindow();
-        var bounds  = new google.maps.LatLngBounds();
-        var latLng : any = {};
+        var bounds = new google.maps.LatLngBounds();
+        var latLng: any = {};
 
         for (var i in this._userInfoMap) {
 
             var userInfo = <UserInfo>this._userInfoMap[i];
 
-             latLng = userInfo.getLatLng();
+            latLng = userInfo.getLatLng();
 
             if (latLng.length < 1) {
                 continue;
@@ -160,7 +165,7 @@ export class MyPlugin {
             var userName = userInfo.getUserName().split('@');
             var name = userName[0];
             var startTime = userInfo.getStartTime()
-            var randomColor = '#'+ ('000000' + Math.floor(Math.random()*16777215).toString(16)).slice(-6);
+            var randomColor = '#' + ('000000' + Math.floor(Math.random() * 16777215).toString(16)).slice(-6);
 
             for (var j in latLng) {
 
@@ -172,11 +177,11 @@ export class MyPlugin {
                 });
 
                 var infoContent = '<div class="info_content">' +
-                        '<h3>' + name + '</h3>' +
-                        '<p>' + startTime[j] + '</p></div>';
+                    '<h3>' + name + '</h3>' +
+                    '<p>' + startTime[j] + '</p></div>';
 
-                google.maps.event.addListener(marker, 'click', (function(marker, j, infoContent) {
-                    return function() {
+                google.maps.event.addListener(marker, 'click', (function (marker, j, infoContent) {
+                    return function () {
                         infowindow.setContent(infoContent);
                         infowindow.open(map, marker);
                     }
@@ -198,7 +203,7 @@ export class MyPlugin {
         map.fitBounds(bounds);       // auto-zoom
         map.panToBounds(bounds);     // auto-center
 
-      }
+    }
 
     private getUserInfo(user: string): UserInfo {
         var x = <UserInfo>this._userInfoMap[user];
@@ -211,8 +216,7 @@ export class MyPlugin {
     }
 
     public GetAddress(recId: string): string {
-        if (this._sheetIndex == null)
-        {
+        if (this._sheetIndex == null) {
             return "na";
         }
         var idx = this._sheetIndex.lookupRecId(recId);
